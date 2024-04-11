@@ -99,7 +99,8 @@ class RedEnv(Env):
         self.seen_position = {}
         return self.state
     def read_m(self, addr):
-        return self.pyboy.get_memory_value(addr)
+        # return self.pyboy.get_memory_value(addr)
+        return self.pyboy.memory[addr]
 
     def get_event_flags(self):
         bitsum = 0

@@ -1,15 +1,22 @@
 from pyboy import PyBoy
 import keyboard
-# pb=open("ROM/PokemonRed.gb.state","rb")
-pyboy = PyBoy('ROM/PokemonRed.gb')
 
-pb = open("ROM/PokemonRed.gb.state","rb")
-# while not pyboy.tick():
-#     pass
-pyboy.tick()
-pyboy.load_state(pb)
-while(1):
-    pyboy.tick()
+
+
+# pb = open("ROM/PokemonRed.gb.state","rb")
+# pyboy = pb_lib.PyBoy('ROM/PokemonRed.gb')
+# pyboy.set_emulation_speed(0)
+
+# pokemon = pyboy.game_wrapper
+# pokemon.start_game()
+
+# pb = open("ROM/PokemonRed.gb.state","rb")
+# # while not pyboy.tick():
+# #     pass
+# pyboy.tick()
+# pyboy.load_state(pb)
+# while(1):
+#     pyboy.tick()
     
         
-pyboy.stop()
+# pyboy.stop()

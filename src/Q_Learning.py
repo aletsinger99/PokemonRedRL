@@ -1,10 +1,9 @@
-import numpy as np
-import gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
 import RedEnvironment
+import numpy as np
 
 # Instantiate the current environment as the imported Pokemon Red Gym Environment
 env = RedEnvironment.RedEnv()
@@ -51,7 +50,7 @@ QBest = Q_est(state_size, actions_size)
 
 def loss_fn(exptup, Q, Qt, discount):
     if not exptup.done:
-        return (exptup.r + discount * torch.max(Qt(torch.tensor(exptup.sp)))-Q(torch.tensor(exptup.s))[exptup.a])**2
+        return (exptup.r + discount * torch.max(Qt(torch.tensor(exptup.sp, dtype=torch.float32)))-Q(torch.tensor(exptup.s, dtype=torch.float32))[exptup.a])**2
     else:
         return (exptup.r-Q(torch.tensor(exptup.s))[exptup.a]**2)
 
