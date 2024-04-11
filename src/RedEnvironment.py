@@ -65,21 +65,22 @@ class RedEnv(Env):
         self.pyboy.send_input(self.valid_actions[action])
         # time.sleep(1/60)
         # disable rendering when we don't need it
+        # action=action
         self.pyboy.tick()
         match action:
-            case 1:
+            case 0:
                 self.pyboy.send_input(self.release_arrow[0])
-            case 2:
+            case 1:
                 self.pyboy.send_input(self.release_arrow[1])
-            case 3:
+            case 2:
                 self.pyboy.send_input(self.release_arrow[2])
-            case 4:
+            case 3:
                 self.pyboy.send_input(self.release_arrow[3])
-            case 5:
+            case 4:
                 self.pyboy.send_input(self.release_button[0])
-            case 6:
+            case 5:
                 self.pyboy.send_input(self.release_button[1])
-            case 7:
+            case 6:
                 self.pyboy.send_input(self.release_button[2])
             case _:
                 pass
