@@ -120,6 +120,7 @@ if __name__ == "__main__":
     buffer = []
     optimizer = optim.Adam(Q.parameters(), lr=lr)
     t0 = time.time()
+    r_loss = 0
     for j in range(1, num_eps+1):
         env.reset()
         done = False
@@ -138,29 +139,22 @@ if __name__ == "__main__":
             experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done)
             buffer.append(experience_tuple)
 
-            # optimizer.zero_grad()
-            # random.shuffle(buffer)
-            r_loss = 0.0
-            # data = buffer[0]
-            # pred = Q(torch.tensor(data.s))
-            # loss = loss_fn(data, Q, Qt, discount)
-            # loss.backward()
-            # optimizer.step()
-            # r_loss = r_loss + loss.detach().numpy()
-            # losses.append(r_loss)
             if step % every_n == 0:
+                
                 data = np.random.choice(buffer, batch_size)
-                s_mat, r_mat, a_mat, sp_mat, done = tup_to_mat(data)
-                pred = Q(s_mat)
-                loss = loss_fn_mat(s_mat, r_mat, a_mat, sp_mat, done, Q, Qt, discount)
-                for l in loss:
-                    l.backward()
+                for d in data:
+                    optimizer.zero_grad()
+                    pred = Q(torch.tensor(d.s))
+                    loss = loss_fn(d, Q, Qt, discount)
+                    loss.backward()
                     optimizer.step()
+                    r_loss = r_loss + loss.detach().numpy()
+                    losses.append(r_loss/batch_size)
+
                 # breakpoint()
                 print(f'Finished step {step}, latest loss {r_loss}')
                 Qt = Q
                 buffer = []
-                r_loss = 0
                 torch.save(Q.state_dict(), f"{save_root}_{step}")
 
     tf = time.time()

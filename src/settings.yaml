@@ -10,7 +10,7 @@ network:
   epsilon: 0.99
   max_step: 10000
   every_n: 1000
-  batch_size: 2000
+  batch_size: 1000
   discount: 0.999
   lr: 0.001
   # saved_weights: null
