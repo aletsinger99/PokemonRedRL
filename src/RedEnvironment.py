@@ -133,6 +133,7 @@ class RedEnv(Env):
         if(loc not in self.seen_location):
             self.seen_location[loc]=1
             self.new_pos = 100
+
     def get_party(self):
         self.party = [self.read_m(a) for a in PARTY_ADDRESSES]
         self.party_levels = [self.read_m(a) for a in LEVELS_ADDRESSES]
