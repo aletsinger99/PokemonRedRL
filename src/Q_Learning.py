@@ -120,7 +120,6 @@ if __name__ == "__main__":
     buffer = []
     optimizer = optim.Adam(Q.parameters(), lr=lr)
     t0 = time.time()
-    r_loss = 0
     for j in range(1, num_eps+1):
         env.reset()
         done = False
@@ -141,6 +140,7 @@ if __name__ == "__main__":
 
             if step % every_n == 0:
                 
+                r_loss = 0
                 data = np.random.choice(buffer, batch_size)
                 for d in data:
                     optimizer.zero_grad()
@@ -149,7 +149,7 @@ if __name__ == "__main__":
                     loss.backward()
                     optimizer.step()
                     r_loss = r_loss + loss.detach().numpy()
-                    losses.append(r_loss/batch_size)
+                losses.append(r_loss/batch_size)
 
                 # breakpoint()
                 print(f'Finished step {step}, latest loss {r_loss}')
