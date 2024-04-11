@@ -4,14 +4,12 @@ import torch.optim as optim
 import random
 import RedEnvironment
 import numpy as np
+import argparse
+import yaml
 
-# Instantiate the current environment as the imported Pokemon Red Gym Environment
-env = RedEnvironment.RedEnv()
-# state_size = env.observation_space.length
-state_size = 41
-actions_size = env.action_space.n
-# print(state_size)
-# print(actions_size)
+import time
+    
+
 class Q_est(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(Q_est, self).__init__()
@@ -33,8 +31,6 @@ class Q_est(nn.Module):
         x = self.output(x)
         # print(x)
         return x
-        
-
 
 
 class ObservationTuple:
@@ -57,9 +53,6 @@ def epsilon_policy(Q, s, eps):
     # check if this is inclusive
     return random.randint(0,6)
 
-Q = Q_est(state_size, actions_size)
-Qt = Q_est(state_size, actions_size)
-# QBest = Q_est(state_size, actions_size)
 
 def loss_fn(exptup, Q, Qt, discount):
     if not exptup.done:
@@ -68,44 +61,86 @@ def loss_fn(exptup, Q, Qt, discount):
         return (exptup.r-Q(torch.tensor(exptup.s))[exptup.a]**2)
 
 
-num_eps = 100
-losses = []
-buffer = []
-epsilon = .5
-max_steps = 500
-optimizer = optim.Adam(Q.parameters(), lr=0.001)
-discount = .999
-for j in range(1, num_eps):
-    
-    env.reset()
-    done = False
-    Qt = Q
-    step = 0
-    while not done:
-        if step > 3000:
-            break
-        s = env.observe()
-        action = epsilon_policy(Q,s,epsilon)
-        print(action)
-        sp, r, done, temp = env.step(action)
-        if done:
-            print('We beat Pokemon Red, somehow....')
-        step += 1
-        experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done)
-        buffer.append(experience_tuple)
 
-        optimizer.zero_grad()
-        random.shuffle(buffer)
-        r_loss = 0.0
-        data = buffer[0]
-        pred = Q(torch.tensor(data.s))
-        loss = loss_fn(data, Q, Qt, discount)
-        loss.backward()
-        optimizer.step()
-        r_loss = r_loss + loss.detach().numpy()
-        losses.append(r_loss)
-        if step % 1000 == 0:
-            print(f'Finished step {step}, latest loss {r_loss}')
-            Qt = Q
-            buffer = []
-            r_loss = 0
+if __name__ == "__main__":
+
+    # Open settings file
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--yaml_file", type=str, default="settings.yaml",
+                        help="settings file")
+    args = parser.parse_args()
+    with open(args.yaml_file, 'r') as file:
+        settings = yaml.safe_load(file)
+
+    network_settings = settings["network"]
+    num_eps = network_settings["num_eps"]
+    epsilon = network_settings["epsilon"]
+    max_steps = network_settings["max_step"]
+    discount = network_settings["discount"]
+    lr = network_settings["lr"]
+    weights_file = network_settings["saved_weights"]
+    save_root = network_settings["save_root"]
+
+    print("-------------------------------------")
+    print("Starting Q Learning with settings:")
+    print(settings)
+    print("-------------------------------------")
+
+
+    # Instantiate the current environment as the imported Pokemon Red Gym Environment
+    env = RedEnvironment.RedEnv(**settings["env"])
+    state_size = 41
+    actions_size = env.action_space.n
+
+
+
+    Q = Q_est(state_size, actions_size)
+    Qt = Q_est(state_size, actions_size)
+    # QBest = Q_est(state_size, actions_size)
+
+    if not weights_file is None:
+        Q.load_state_dict(torch.load(weights_file))
+        Qt.load_state_dict(torch.load(weights_file))
+
+    losses = []
+    buffer = []
+    optimizer = optim.Adam(Q.parameters(), lr=lr)
+    t0 = time.time()
+    for j in range(1, num_eps+1):
+        env.reset()
+        done = False
+        Qt = Q
+        step = 0
+        while not done:
+            if step > max_steps:
+                break
+            s = env.observe()
+            action = epsilon_policy(Q,s,epsilon)
+            # print(action)
+            sp, r, done, temp = env.step(action)
+            if done:
+                print('We beat Pokemon Red, somehow....')
+            step += 1
+            experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done)
+            buffer.append(experience_tuple)
+
+            optimizer.zero_grad()
+            random.shuffle(buffer)
+            r_loss = 0.0
+            data = buffer[0]
+            pred = Q(torch.tensor(data.s))
+            loss = loss_fn(data, Q, Qt, discount)
+            loss.backward()
+            optimizer.step()
+            r_loss = r_loss + loss.detach().numpy()
+            losses.append(r_loss)
+            if step % 1000 == 0:
+                print(f'Finished step {step}, latest loss {r_loss}')
+                Qt = Q
+                buffer = []
+                r_loss = 0
+                torch.save(Q.state_dict(), f"{save_root}_{step}")
+
+    tf = time.time()
+
+    print("finished running in", np.round(tf-t0, 3), "seconds")

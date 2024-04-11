@@ -4,12 +4,18 @@ from pyboy import PyBoy
 from memoryAddresses import *
 import numpy as np
 import time
+from copy import deepcopy
+
 class RedEnv(Env):
     
-    def __init__(self):
-        self.pyboy = PyBoy('ROM/PokemonRed.gb')
-        self.pb = open("ROM/PokemonRed.gb.state","rb")
-        self.pyboy.load_state(self.pb)
+    def __init__(self, window='SDL2', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state"):
+        
+        self.ROM = ROM
+        self.window = window
+        self.pyboy = PyBoy(self.ROM, window=self.window)
+        self.pyboy.set_emulation_speed(0)
+        self.initial_state_file = initial_state_file
+        self.reset()
 
         self.valid_actions = [
             WindowEvent.PRESS_ARROW_DOWN,
@@ -53,7 +59,6 @@ class RedEnv(Env):
         self.seen_position = {}
         self.seen_location = {}
         self.state = np.hstack([1, self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags]).reshape(41)
-        print(np.shape(self.state))
         self.observation_space = spaces.Box(low=0, high = 1000, shape = (1,len(self.state)), dtype=int)
         self.reward = 0
 
@@ -95,10 +100,9 @@ class RedEnv(Env):
         return self.state.astype('float32')
 
     def reset(self):
-        file=open("ROM/PokemonRed.gb.state","rb")
-        self.pyboy.load_state(file)
+        self.pyboy.load_state(open(self.initial_state_file,"rb"))
         self.seen_position = {}
-        return self.state
+        return
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
         return self.pyboy.memory[addr]
