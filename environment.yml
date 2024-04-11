@@ -1,0 +1,16 @@
+name: pyboy
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python==3.11.6
+  - gymnasium
+  - ipython
+  - numpy
+  - matplotlib
+  - pip
+  # Insert pip dependencies as a list under here like
+  # - pip:
+  #   - package
+  - pip:
+    - pyboy
