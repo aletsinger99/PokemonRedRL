@@ -14,22 +14,28 @@ class Q_est(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(Q_est, self).__init__()
         self.hidden1 = nn.Linear(n_observations, 64)
-        # print(self.hidden1.weight.dtype)
         self.hidden2 = nn.Linear(64, 32)
-        # print(self.hidden2.weight.dtype)
         self.output = nn.Linear(32, n_actions)
-        # print(self.output.weight.dtype)
+
 
     def forward(self, x):
-        # x = torch.tensor(x, dtype=float)
-        # print(x)
-        # print(type(x))
         x = torch.relu(self.hidden1(x))
-        # print(x)
         x = torch.relu(self.hidden2(x))
-        # print(x)
         x = self.output(x)
-        # print(x)
+        return x
+    
+class RNDist(nn.Module):
+    def __init__(self, n_observations):
+        super(RNDist, self).__init__()
+        self.hidden1 = nn.Linear(n_observations, 64)
+        self.hidden2 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 16)
+
+
+    def forward(self, x):
+        x = torch.relu(self.hidden1(x))
+        x = torch.relu(self.hidden2(x))
+        x = self.output(x)
         return x
 
 
@@ -51,14 +57,14 @@ def epsilon_policy(Q, s, eps):
         return np.argmax(Q(obs).detach().numpy())
     
     # check if this is inclusive
-    return random.randint(0,6)
+    return random.randint(0,5)
 
 
-def loss_fn(exptup, Q, Qt, discount):
+def loss_fn(exptup, Q, Qt, discount, extrinsic_reward):
     if not exptup.done:
-        return (exptup.r + discount * torch.max(Qt(torch.tensor(exptup.sp)))-Q(torch.tensor(exptup.s))[exptup.a])**2
+        return (exptup.r + extrinsic_reward + discount * torch.max(Qt(torch.tensor(exptup.sp)))-Q(torch.tensor(exptup.s))[exptup.a])**2
     else:
-        return (exptup.r-Q(torch.tensor(exptup.s))[exptup.a]**2)
+        return (exptup.r + extrinsic_reward -Q(torch.tensor(exptup.s))[exptup.a]**2)
 
 def loss_fn_mat(s, r, a, sp, done, Q, Qt, discount):
     Qsa = torch.flatten(torch.gather(Q(s), 1, a))
@@ -111,7 +117,9 @@ if __name__ == "__main__":
     Q = Q_est(state_size, actions_size)
     Qt = Q_est(state_size, actions_size)
     # QBest = Q_est(state_size, actions_size)
-
+    RNDistTarget = RNDist(state_size)
+    RNDistPredictor = RNDist(state_size)
+    
     if not weights_file is None:
         Q.load_state_dict(torch.load(weights_file))
         Qt.load_state_dict(torch.load(weights_file))
@@ -119,9 +127,16 @@ if __name__ == "__main__":
     losses = []
     buffer = []
     optimizer = optim.Adam(Q.parameters(), lr=lr)
+    RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=lr)
+    extrinsic_loss = torch.nn.MSELoss()
     t0 = time.time()
+    epsMax = epsilon
+    # epsRatio = 0.4/epsilon ** (1/num_eps)
     for j in range(1, num_eps+1):
         env.reset()
+        # if epsilon > .1:
+        #     epsilon = epsilon**2
+        # epsilon = epsMax*epsRatio**(j-1)
         done = False
         Qt = Q
         step = 0
@@ -142,20 +157,31 @@ if __name__ == "__main__":
                 
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
+                rew = []
                 for d in data:
-                    optimizer.zero_grad()
+                    
+                    
                     pred = Q(torch.tensor(d.s))
-                    loss = loss_fn(d, Q, Qt, discount)
-                    loss.backward()
+                    extrinsic_reward = extrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
+                    RNDoptimzer.zero_grad()
+                    extrinsic_reward.backward()
+                    RNDoptimzer.step()
+                    
+                    optimizer.zero_grad()
+                    loss_Q = loss_fn(d, Q, Qt, discount, extrinsic_reward.detach().numpy())
+                    loss_Q.backward()
                     optimizer.step()
-                    r_loss = r_loss + loss.detach().numpy()
+                    
+                    r_loss = r_loss + loss_Q.detach().numpy()
+                    rew.append(d.r)
                 losses.append(r_loss/batch_size)
+                # avg_rew.append(np.mean(rew))
 
                 # breakpoint()
-                print(f'Finished step {step}, latest loss {r_loss}')
+                print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}')
                 Qt = Q
                 buffer = []
-                torch.save(Q.state_dict(), f"{save_root}_{step}")
+                # torch.save(Q.state_dict(), f"{save_root}_{step}")
 
     tf = time.time()
 

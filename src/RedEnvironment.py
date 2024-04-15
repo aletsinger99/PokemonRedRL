@@ -160,7 +160,7 @@ class RedEnv(Env):
         # print(self.state)
     def update_reward(self):
         
-        self.reward = self.flags + self.new_pos
+        self.reward = self.flags+.1*len(self.seen_location)
         # self.reward = self.flags
 
         # if self.reward is None:
