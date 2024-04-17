@@ -8,6 +8,7 @@ import argparse
 import yaml
 
 import time
+from pathlib import Path
     
 
 class Q_est(nn.Module):
@@ -60,7 +61,7 @@ def epsilon_policy(Q, s, eps):
         return np.argmax(Q(obs).detach().numpy())
     
     # check if this is inclusive
-    return random.randint(0,5)
+    return random.randint(0,4)
 
 
 def loss_fn(exptup, Q, Qt, discount, intrinsic_reward):
@@ -101,8 +102,13 @@ if __name__ == "__main__":
     lr = network_settings["lr"]
     weights_file = network_settings["saved_weights"]
     save_root = network_settings["save_root"]
-    every_n = network_settings["every_n"]
+    train_every_n = network_settings["train_every_n"]
+    save_every_n = network_settings["save_every_n"]
     batch_size = network_settings["batch_size"]
+    best_state_file = network_settings["best_state_file"]
+    running_screenshot = network_settings["running_screenshot"]
+    reward_screenshots = network_settings["reward_screenshots"]
+    initial_fill = network_settings["initial_fill"]
 
     print("-------------------------------------")
     print("Starting Q Learning with settings:")
@@ -123,9 +129,9 @@ if __name__ == "__main__":
     RNDistTarget = RNDist(state_size)
     RNDistPredictor = RNDist(state_size)
     
-    # if not weights_file is None:
-    #     Q.load_state_dict(torch.load(weights_file))
-    #     Qt.load_state_dict(torch.load(weights_file))
+    if not weights_file is None:
+        Q.load_state_dict(torch.load(weights_file))
+        Qt.load_state_dict(torch.load(weights_file))
 
     losses = []
     buffer = []
@@ -135,8 +141,17 @@ if __name__ == "__main__":
     t0 = time.time()
     epsMax = epsilon
     # epsRatio = 0.4/epsilon ** (1/num_eps)
+    best_reward = 0
+    eps_reward = 0
+    eps_history = []
+    count = 0
+    max_prog = 0
     for j in range(1, num_eps+1):
+        
+        # reward and history for this episode
         env.reset()
+        eps_reward = 0
+        eps_history = []
         
         if epsilon > .1:
             epsilon = epsilon-.01
@@ -152,13 +167,26 @@ if __name__ == "__main__":
             action = epsilon_policy(Q,s,epsilon)
             # print(action)
             sp, r, done, temp = env.step(action)
+            # Keep track of what the flags are
+            prog = env.progress_val()
+            if prog > max_prog:
+                max_prog = prog
+                env.save_screenshot(Path(reward_screenshots, f"{np.round(r,2)}.png"))
+
             if done:
                 print('We beat Pokemon Red, somehow....')
             step += 1
+            count += 1
+
             experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done)
             buffer.append(experience_tuple)
+            eps_history.append(experience_tuple)
+            eps_reward += experience_tuple.r*(discount**step)
 
-            if step % every_n == 0:
+            if count % save_every_n == 0:
+                torch.save(Q.state_dict(), f"{save_root}_{count}")
+
+            if count % train_every_n == 0 and count >= initial_fill:
                 
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
@@ -179,6 +207,7 @@ if __name__ == "__main__":
                     
                     optimizer.zero_grad()
                     loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
+                    # loss_Q = loss_fn(d, Q, Qt, discount, 0)
                     loss_Q.backward()
                     optimizer.step()
                     
@@ -189,11 +218,21 @@ if __name__ == "__main__":
 
                 # breakpoint()
                 print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
+
+                env.save_screenshot(running_screenshot)
                 Qt = Q
-                torch.save(Q.state_dict(), f"{save_root}_{step}")
                 if len(buffer) > 5000000:
                     buffer = list(data)
-                
+        
+        print(f"Finished episode {j} -- episode reward {np.round(eps_reward, 3)} -- event flags seen {env.seen_event_flags}")
+        if eps_reward > best_reward:
+            best_reward = eps_reward
+            print("---------------------------")
+            print(f"New best episode reward of {best_reward} achieved!")
+            print("---------------------------")
+            env.save_state(best_state_file)
+            env.save_screenshot(best_state_file.replace(".state", ".png"))
+            # buffer = eps_history[:]
     
     tf = time.time()
 

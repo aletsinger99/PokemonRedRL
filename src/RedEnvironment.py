@@ -5,6 +5,7 @@ from memoryAddresses import *
 import numpy as np
 import time
 from copy import deepcopy
+import matplotlib.image
 
 class RedEnv(Env):
     
@@ -55,6 +56,7 @@ class RedEnv(Env):
         self.party_max_hp = [0,0,0,0,0,0]
         self.gym_badges = [0,0,0,0,0,0,0,0]
         self.flags = 0
+        self.new_flags = 0
         self.new_pos = 0
         self.seen_position = {}
         self.seen_location = {}
@@ -64,6 +66,8 @@ class RedEnv(Env):
 
         self.action_space = spaces.Discrete(len(self.valid_actions))
         # self.pyboy = PyBoy('ROM/PokemonRed.gb')
+
+        self.old_seen_loc = 0
 
     def step(self, action):
         # press button then release after some steps
@@ -100,8 +104,9 @@ class RedEnv(Env):
         return self.state.astype('float32')
 
     def reset(self):
-        self.pyboy.load_state(open(self.initial_state_file,"rb"))
+        self.load_state(self.initial_state_file)
         self.seen_position = {}
+        self.seen_event_flags = {}
         return
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
@@ -111,7 +116,13 @@ class RedEnv(Env):
         bitsum = 0
         for i in range(55111,55431):
             bitsum = bitsum + ((self.read_m(i)).bit_count())
+        self.new_flags = bitsum - self.flags
         self.flags = bitsum
+
+        if bitsum in self.seen_event_flags:
+            self.seen_event_flags[bitsum] += 1
+        else:
+            self.seen_event_flags[bitsum] = 1
       
             
     def get_badges(self):
@@ -160,12 +171,34 @@ class RedEnv(Env):
         # print(self.state)
     def update_reward(self):
         
+        new_locs = len(self.seen_location) - self.old_seen_loc
+
+
         self.reward = self.flags+.1*len(self.seen_location)
+
+        # self.reward = -1e-05 + 10*self.new_flags + new_locs
+
+        self.old_seen_loc = len(self.seen_location)
+        # self.reward = self.new_flags
         # self.reward = self.flags
 
         # if self.reward is None:
         #     self.reward = 0
+
+    def progress_val(self):
+        return len(self.seen_location) - self.old_seen_loc
         
+    
+    def save_state(self, file):
+        with open(file, "wb") as f:
+            self.pyboy.save_state(f)
+
+    def load_state(self, file):
+        self.pyboy.load_state(open(file,"rb"))
+
+    def save_screenshot(self, file):
+        rgba = self.pyboy.screen.ndarray
+        matplotlib.image.imsave(file, rgba)
 
     
         

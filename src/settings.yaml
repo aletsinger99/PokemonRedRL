@@ -1,18 +1,23 @@
 
 env:
-  window: "SDL2"
-  # window: "null"
+  # window: "SDL2"
+  window: "null"
   ROM: "ROM/PokemonRed.gb"
   initial_state_file: "ROM/PokemonRed.gb.state"
 
 network:
   num_eps: 100
   epsilon: 0.75
-  max_step: 100000
-  every_n: 2000
+  max_step: 10000
+  train_every_n: 1000
   batch_size: 2000
-  discount: 0.999
+  initial_fill: 2000
+  save_every_n: 100000
+  discount: 0.9999
   lr: 0.001
-  # saved_weights: null
-  saved_weights: "weights/weights1_76000"
+  saved_weights: null
+  # saved_weights: "weights/weights1_100000_6in"
   save_root: "weights/weights1"
+  best_state_file: "ROM/best_state.state"
+  running_screenshot: "screenshot.png"
+  reward_screenshots: "reward_flags"
