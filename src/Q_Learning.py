@@ -207,7 +207,6 @@ if __name__ == "__main__":
                     
                     optimizer.zero_grad()
                     loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
-                    # loss_Q = loss_fn(d, Q, Qt, discount, 0)
                     loss_Q.backward()
                     optimizer.step()
                     
