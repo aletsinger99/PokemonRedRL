@@ -15,12 +15,15 @@ class Q_est(nn.Module):
         super(Q_est, self).__init__()
         self.hidden1 = nn.Linear(n_observations, 64)
         self.hidden2 = nn.Linear(64, 32)
-        self.output = nn.Linear(32, n_actions)
+        self.hidden3 = nn.Linear(32, 16)
+
+        self.output = nn.Linear(16, n_actions)
 
 
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
         x = torch.relu(self.hidden2(x))
+        x = torch.relu(self.hidden3(x))
         x = self.output(x)
         return x
     
@@ -60,11 +63,11 @@ def epsilon_policy(Q, s, eps):
     return random.randint(0,5)
 
 
-def loss_fn(exptup, Q, Qt, discount, extrinsic_reward):
+def loss_fn(exptup, Q, Qt, discount, intrinsic_reward):
     if not exptup.done:
-        return (exptup.r + extrinsic_reward + discount * torch.max(Qt(torch.tensor(exptup.sp)))-Q(torch.tensor(exptup.s))[exptup.a])**2
+        return (exptup.r + intrinsic_reward + discount * torch.max(Qt(torch.tensor(exptup.sp)))-Q(torch.tensor(exptup.s))[exptup.a])**2
     else:
-        return (exptup.r + extrinsic_reward -Q(torch.tensor(exptup.s))[exptup.a]**2)
+        return (exptup.r + intrinsic_reward -Q(torch.tensor(exptup.s))[exptup.a]**2)
 
 def loss_fn_mat(s, r, a, sp, done, Q, Qt, discount):
     Qsa = torch.flatten(torch.gather(Q(s), 1, a))
@@ -120,23 +123,25 @@ if __name__ == "__main__":
     RNDistTarget = RNDist(state_size)
     RNDistPredictor = RNDist(state_size)
     
-    if not weights_file is None:
-        Q.load_state_dict(torch.load(weights_file))
-        Qt.load_state_dict(torch.load(weights_file))
+    # if not weights_file is None:
+    #     Q.load_state_dict(torch.load(weights_file))
+    #     Qt.load_state_dict(torch.load(weights_file))
 
     losses = []
     buffer = []
     optimizer = optim.Adam(Q.parameters(), lr=lr)
     RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=lr)
-    extrinsic_loss = torch.nn.MSELoss()
+    intrinsic_loss = torch.nn.MSELoss()
     t0 = time.time()
     epsMax = epsilon
     # epsRatio = 0.4/epsilon ** (1/num_eps)
     for j in range(1, num_eps+1):
         env.reset()
-        # if epsilon > .1:
-        #     epsilon = epsilon**2
+        
+        if epsilon > .1:
+            epsilon = epsilon-.01
         # epsilon = epsMax*epsRatio**(j-1)
+        # epsilon = epsilon
         done = False
         Qt = Q
         step = 0
@@ -158,17 +163,22 @@ if __name__ == "__main__":
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
                 rew = []
+                intrin_loss_list = []
                 for d in data:
                     
                     
                     pred = Q(torch.tensor(d.s))
-                    extrinsic_reward = extrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
+                    intrinsicloss = intrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
                     RNDoptimzer.zero_grad()
-                    extrinsic_reward.backward()
+                    
+                    intrin_loss_list.append(intrinsicloss.detach().numpy())
+                    # print(np.std(intrin_std))
+                    intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
+                    intrinsicloss.backward()
                     RNDoptimzer.step()
                     
                     optimizer.zero_grad()
-                    loss_Q = loss_fn(d, Q, Qt, discount, extrinsic_reward.detach().numpy())
+                    loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
                     loss_Q.backward()
                     optimizer.step()
                     
@@ -178,11 +188,13 @@ if __name__ == "__main__":
                 # avg_rew.append(np.mean(rew))
 
                 # breakpoint()
-                print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}')
+                print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
                 Qt = Q
-                buffer = []
-                # torch.save(Q.state_dict(), f"{save_root}_{step}")
-
+                torch.save(Q.state_dict(), f"{save_root}_{step}")
+                if len(buffer) > 5000000:
+                    buffer = list(data)
+                
+    
     tf = time.time()
 
     print("finished running in", np.round(tf-t0, 3), "seconds")

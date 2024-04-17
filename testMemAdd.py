@@ -16,6 +16,6 @@ while(1):
 
     print('X: '+str(read_m(memoryAddresses.X_POS_ADDRESS))+'  Y:  '+str(read_m(memoryAddresses.Y_POS_ADDRESS))+ '   Map Loc:  '+ str(read_m(memoryAddresses.MAP_N_ADDRESS)) + '  Type of battle: '+str(read_m(memoryAddresses.CAN_CATCH))+ ' Mon slot 1: '+str(read_m(memoryAddresses.POKEMON_1))+ ' Mon Health: ' + 
     str(int(str(bin(read_m(memoryAddresses.POKEMON_1_H1)))[2:]+str(bin(read_m(memoryAddresses.POKEMON_1_H2)))[2:],2))+ ' Enemy Mon: '+str(read_m(memoryAddresses.E_POKEMON))+ ' EMon Health: ' + str(int(str(bin(read_m(memoryAddresses.E_POKEMON_H1)))[2:]+str(bin(read_m(memoryAddresses.E_POKEMON_H2)))[2:],2))+' flag summation: '+str(mysum))
-pyboy.stop()
+    pyboy.stop()
     # mysum = read_m(55112)
     # print('flag summation: '+str(mysum))
