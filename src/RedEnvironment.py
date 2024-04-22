@@ -4,8 +4,11 @@ from pyboy import PyBoy
 from memoryAddresses import *
 import numpy as np
 import time
+from itertools import product
 from copy import deepcopy
 import matplotlib.image
+import matplotlib.pyplot as plt
+import torch
 
 class RedEnv(Env):
     
@@ -107,6 +110,8 @@ class RedEnv(Env):
         self.load_state(self.initial_state_file)
         self.seen_position = {}
         self.seen_event_flags = {}
+        self.seen_location = {}
+        self.old_seen_loc = 0
         return
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
@@ -116,6 +121,7 @@ class RedEnv(Env):
         bitsum = 0
         for i in range(55111,55431):
             bitsum = bitsum + ((self.read_m(i)).bit_count())
+        
         self.new_flags = bitsum - self.flags
         self.flags = bitsum
 
@@ -171,12 +177,16 @@ class RedEnv(Env):
         # print(self.state)
     def update_reward(self):
         
-        new_locs = len(self.seen_location) - self.old_seen_loc
+        seen_locs = len(self.seen_location)
+        new_locs =  seen_locs - self.old_seen_loc
 
 
-        self.reward = self.flags+.1*len(self.seen_location)
-
-        # self.reward = -1e-05 + 10*self.new_flags + new_locs
+        # self.reward = self.flags+.1*len(self.seen_location)
+        self.reward = 0
+        if seen_locs > 1:
+            self.reward += 10*new_locs
+        if self.state[-1] > 0:
+            self.reward += 100*self.new_flags
 
         self.old_seen_loc = len(self.seen_location)
         # self.reward = self.new_flags
@@ -199,6 +209,87 @@ class RedEnv(Env):
     def save_screenshot(self, file):
         rgba = self.pyboy.screen.ndarray
         matplotlib.image.imsave(file, rgba)
+
+    def visualize_policy(self, file, Q, s_ind):
+
+        rgba = self.pyboy.screen.ndarray
+        plt.imshow(rgba, origin="upper")
+        plt.gca().set_aspect(1)
+        # plt.axis("off")
+
+        # Go 10 spaces on either side
+        diffs = np.arange(-10, 11)
+        xyqa = np.zeros((len(diffs)**2, 4))
+        x, y = self.state[[1,2]]
+        act_idx = {}
+        multiplier = 8
+        for i, (dx, dy) in enumerate(product(diffs, diffs)):
+            xp = x + dx
+            yp = y + dy
+            s = [xp, yp] + list(self.state[s_ind])
+            Qvals = Q(torch.tensor(s, dtype=torch.float32)).detach().numpy()
+            xyqa[i, 0] = xp
+            xyqa[i, 1] = yp
+            xyqa[i, 2] = np.max(Qvals)
+            xyqa[i, 3] = int(np.argmax(Qvals))
+            a = xyqa[i, 3]
+            if a in act_idx:
+                act_idx[a] += [i]
+            else:
+                act_idx[a] = [i]
+
+        # WindowEvent.PRESS_ARROW_DOWN,
+        # WindowEvent.PRESS_ARROW_LEFT,
+        # WindowEvent.PRESS_ARROW_RIGHT,
+        # WindowEvent.PRESS_ARROW_UP,
+        # WindowEvent.PRESS_BUTTON_A,
+        arrows = {0: (0, 1),
+                  1: (-1, 0),
+                  2: (1, 0),
+                  3: (0, -1)}
+        shift = 144/2
+        # shift = 0
+        scale = 0.5
+        for a in arrows:
+            if a in act_idx:
+                entries = xyqa[act_idx[a], :]
+                dx = entries[:, 0] - x
+                dy = entries[:, 1] - y
+                xpos = shift + dx*multiplier
+                ypos = shift + dy*multiplier
+                plt.quiver(xpos, ypos,
+                        scale*arrows[a][0],scale*arrows[a][1])
+        
+        # press a locations
+        if 4 in act_idx:
+            entries = xyqa[act_idx[4], :]
+            dx = entries[:, 0] - x
+            dy = entries[:, 1] - y
+            xpos = shift + dx*multiplier
+            ypos = shift + dy*multiplier
+            plt.scatter(xpos, ypos)
+
+        plt.savefig(file)
+
+        plt.close()
+
+        # Scatter for q value
+        dx = xyqa[:, 0] - x
+        dy = xyqa[:, 1] - y
+        xpos = shift + dx*multiplier
+        ypos = shift + dy*multiplier
+        q =  xyqa[:, 2]
+        q /= q.max()
+        q -= q.mean()
+        q /= q.std()
+        plt.imshow(rgba, origin="upper")
+        plt.gca().set_aspect(1)
+        plt.scatter(xpos, ypos, q)
+        plt.savefig("q.png")
+
+
+
+
 
     
         

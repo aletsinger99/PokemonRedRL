@@ -14,44 +14,45 @@ from pathlib import Path
 class Q_est(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(Q_est, self).__init__()
-        self.hidden1 = nn.Linear(n_observations, 64)
-        self.hidden2 = nn.Linear(64, 32)
-        self.hidden3 = nn.Linear(32, 16)
-
+        self.hidden1 = nn.Linear(n_observations, 32)
+        self.hidden2 = nn.Linear(32, 16)
         self.output = nn.Linear(16, n_actions)
 
 
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
         x = torch.relu(self.hidden2(x))
-        x = torch.relu(self.hidden3(x))
         x = self.output(x)
         return x
     
 class RNDist(nn.Module):
     def __init__(self, n_observations):
         super(RNDist, self).__init__()
-        self.hidden1 = nn.Linear(n_observations, 64)
-        self.hidden2 = nn.Linear(64, 32)
-        self.output = nn.Linear(32, 16)
+        self.hidden1 = nn.Linear(n_observations, 16)
+        self.output = nn.Linear(16, 1)
 
 
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
-        x = torch.relu(self.hidden2(x))
         x = self.output(x)
         return x
 
 
 class ObservationTuple:
-    def __init__(self, s, a, r, sp, done):
+    def __init__(self, s, a, r, sp, done, s_ind = []):
         self.s = s
+        if s_ind:
+            self.s = self.s[s_ind]
         self.a = a
         self.r = r 
         self.sp = sp 
+        if s_ind:
+            self.sp = self.sp[s_ind]
         self.done = done
 
-def epsilon_policy(Q, s, eps):
+def epsilon_policy(Q, s, eps, s_ind=[]):
+    if s_ind:
+        s = s[s_ind]
     obs = np.array(s).astype('float32')
     obs = torch.tensor(obs)
 
@@ -118,8 +119,13 @@ if __name__ == "__main__":
 
     # Instantiate the current environment as the imported Pokemon Red Gym Environment
     env = RedEnvironment.RedEnv(**settings["env"])
-    state_size = 41
-    actions_size = env.action_space.n
+    # state_size = 41
+    # state_idx = [1, 2, 3, -1] # X, Y, Location ID, Event Flag
+    state_idx = [1, 2, 3]
+    state_size = len(state_idx)
+
+    # actions_size = env.action_space.n
+    actions_size = 5 # down, left right, up, a
 
 
 
@@ -153,8 +159,8 @@ if __name__ == "__main__":
         eps_reward = 0
         eps_history = []
         
-        if epsilon > .1:
-            epsilon = epsilon-.01
+        # if epsilon > .1:
+        #     epsilon = epsilon-.01
         # epsilon = epsMax*epsRatio**(j-1)
         # epsilon = epsilon
         done = False
@@ -164,7 +170,7 @@ if __name__ == "__main__":
             if step > max_steps:
                 break
             s = env.observe()
-            action = epsilon_policy(Q,s,epsilon)
+            action = epsilon_policy(Q,s,epsilon, state_idx)
             # print(action)
             sp, r, done, temp = env.step(action)
             # Keep track of what the flags are
@@ -178,10 +184,13 @@ if __name__ == "__main__":
             step += 1
             count += 1
 
-            experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done)
+            experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
             buffer.append(experience_tuple)
             eps_history.append(experience_tuple)
             eps_reward += experience_tuple.r*(discount**step)
+
+            if sp[-1] != s[-1]:
+                done = True
 
             if count % save_every_n == 0:
                 torch.save(Q.state_dict(), f"{save_root}_{count}")
@@ -196,17 +205,19 @@ if __name__ == "__main__":
                     
                     
                     pred = Q(torch.tensor(d.s))
-                    intrinsicloss = intrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
-                    RNDoptimzer.zero_grad()
+                    # intrinsicloss = intrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
+                    # RNDoptimzer.zero_grad()
                     
-                    intrin_loss_list.append(intrinsicloss.detach().numpy())
-                    # print(np.std(intrin_std))
-                    intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
-                    intrinsicloss.backward()
-                    RNDoptimzer.step()
+                    # intrin_loss_list.append(intrinsicloss.detach().numpy())
+                    # # print(np.std(intrin_std))
+                    # intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
+                    # intrinsicloss.backward()
+                    # RNDoptimzer.step()                    
                     
                     optimizer.zero_grad()
-                    loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
+                    # loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
+                    
+                    loss_Q = loss_fn(d, Q, Qt, discount, 0)
                     loss_Q.backward()
                     optimizer.step()
                     
@@ -216,9 +227,10 @@ if __name__ == "__main__":
                 # avg_rew.append(np.mean(rew))
 
                 # breakpoint()
-                print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
-
+                # print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
+                # print(f'Training: latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
                 env.save_screenshot(running_screenshot)
+                env.visualize_policy("policy.png", Q, state_idx[2:])
                 Qt = Q
                 if len(buffer) > 5000000:
                     buffer = list(data)
