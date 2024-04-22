@@ -1,4 +1,5 @@
-from gymnasium import Env, spaces
+from gymnasium import Env
+from gym import spaces
 from pyboy.utils import WindowEvent
 from pyboy import PyBoy
 from memoryAddresses import *
@@ -8,14 +9,14 @@ from copy import deepcopy
 
 class RedEnv(Env):
     
-    def __init__(self, window='SDL2', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state"):
+    def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state"):
         
         self.ROM = ROM
         self.window = window
         self.pyboy = PyBoy(self.ROM, window=self.window)
         self.pyboy.set_emulation_speed(0)
         self.initial_state_file = initial_state_file
-        self.reset()
+        
 
         self.valid_actions = [
             WindowEvent.PRESS_ARROW_DOWN,
@@ -58,11 +59,13 @@ class RedEnv(Env):
         self.new_pos = 0
         self.seen_position = {}
         self.seen_location = {}
-        self.state = np.hstack([1, self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags]).reshape(41)
-        self.observation_space = spaces.Box(low=0, high = 1000, shape = (1,len(self.state)), dtype=int)
+        self.state = np.hstack([1, self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags])
+        # print(self.state)
+        self.observation_space = spaces.Box(low=0, high = np.inf, shape = (len(self.state),), dtype=int)
         self.reward = 0
 
         self.action_space = spaces.Discrete(len(self.valid_actions))
+        self.reset()
         # self.pyboy = PyBoy('ROM/PokemonRed.gb')
 
     def step(self, action):
@@ -89,20 +92,21 @@ class RedEnv(Env):
                 self.pyboy.send_input(self.release_button[2])
             case _:
                 pass
-        for j in range(0, 8):
-            self.pyboy.tick()
-        
+        # for j in range(0, 8):
+        #     self.pyboy.tick()
+        self.pyboy.tick()
         self.update_state()
         self.update_reward()
         
         return self.state, self.reward, False, {} 
     def observe(self):
-        return self.state.astype('float32')
+        return self.state
 
     def reset(self):
         self.pyboy.load_state(open(self.initial_state_file,"rb"))
         self.seen_position = {}
-        return
+        self.seen_location = {}
+        return self.observe()
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
         return self.pyboy.memory[addr]
@@ -154,13 +158,13 @@ class RedEnv(Env):
         self.get_party()
         self.get_battle()
         
-        self.state = np.hstack([1,self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags]).reshape(41)
+        self.state = np.hstack([1,self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags])
         # print(self.party_max_hp)
         # print(self.gym_badges)
         # print(self.state)
     def update_reward(self):
         
-        self.reward = self.flags+.1*len(self.seen_location)
+        self.reward = self.flags+len(self.seen_location)
         # self.reward = self.flags
 
         # if self.reward is None:
