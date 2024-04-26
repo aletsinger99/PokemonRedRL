@@ -73,12 +73,14 @@ class RedEnv(Env):
         self.old_seen_loc = 0
 
     def step(self, action):
+
         # press button then release after some steps
         self.pyboy.send_input(self.valid_actions[action])
         # time.sleep(1/60)
         # disable rendering when we don't need it
         # action=action
-        self.pyboy.tick()
+        for j in range(0, 4):
+            self.pyboy.tick()
         match action:
             case 0:
                 self.pyboy.send_input(self.release_arrow[0])
@@ -112,6 +114,7 @@ class RedEnv(Env):
         self.seen_event_flags = {}
         self.seen_location = {}
         self.old_seen_loc = 0
+        self.last_action = None
         return
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
@@ -182,7 +185,7 @@ class RedEnv(Env):
 
 
         # self.reward = self.flags+.1*len(self.seen_location)
-        self.reward = 0
+        self.reward = -0.001*0
         if seen_locs > 1:
             self.reward += 10*new_locs
         if self.state[-1] > 0:
@@ -192,11 +195,13 @@ class RedEnv(Env):
         # self.reward = self.new_flags
         # self.reward = self.flags
 
-        # if self.reward is None:
-        #     self.reward = 0
+        if self.reward > 0:
+            print(self.x_pos, self.y_pos, self.reward)
+
+
 
     def progress_val(self):
-        return len(self.seen_location) - self.old_seen_loc
+        return self.flags+.1*len(self.seen_location)
         
     
     def save_state(self, file):
@@ -218,11 +223,12 @@ class RedEnv(Env):
         # plt.axis("off")
 
         # Go 10 spaces on either side
-        diffs = np.arange(-10, 11)
+        # diffs = np.arange(-10, 11)
+        diffs = np.arange(-5, 6)
         xyqa = np.zeros((len(diffs)**2, 4))
         x, y = self.state[[1,2]]
         act_idx = {}
-        multiplier = 8
+        multiplier = 16
         for i, (dx, dy) in enumerate(product(diffs, diffs)):
             xp = x + dx
             yp = y + dy
@@ -243,10 +249,10 @@ class RedEnv(Env):
         # WindowEvent.PRESS_ARROW_RIGHT,
         # WindowEvent.PRESS_ARROW_UP,
         # WindowEvent.PRESS_BUTTON_A,
-        arrows = {0: (0, 1),
+        arrows = {0: (0, -1),
                   1: (-1, 0),
                   2: (1, 0),
-                  3: (0, -1)}
+                  3: (0, 1)}
         shift = 144/2
         # shift = 0
         scale = 0.5
@@ -279,13 +285,13 @@ class RedEnv(Env):
         xpos = shift + dx*multiplier
         ypos = shift + dy*multiplier
         q =  xyqa[:, 2]
-        q /= q.max()
         q -= q.mean()
         q /= q.std()
         plt.imshow(rgba, origin="upper")
         plt.gca().set_aspect(1)
-        plt.scatter(xpos, ypos, q)
+        plt.scatter(xpos, ypos, 10*q)
         plt.savefig("q.png")
+        plt.close()
 
 
 

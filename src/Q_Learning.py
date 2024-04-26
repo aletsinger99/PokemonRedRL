@@ -7,21 +7,24 @@ import numpy as np
 import argparse
 import yaml
 
-import time
+import time, sys
 from pathlib import Path
-    
+
+import matplotlib.pyplot as plt
 
 class Q_est(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(Q_est, self).__init__()
         self.hidden1 = nn.Linear(n_observations, 32)
-        self.hidden2 = nn.Linear(32, 16)
-        self.output = nn.Linear(16, n_actions)
+        # self.hidden2 = nn.Linear(32, 16)
+        self.output = nn.Linear(32, n_actions)
 
 
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
-        x = torch.relu(self.hidden2(x))
+        # x = torch.relu(self.hidden2(x))
+        # x = torch.sigmoid(self.hidden1(x))
+        # x = self.hidden2(x)
         x = self.output(x)
         return x
     
@@ -50,7 +53,7 @@ class ObservationTuple:
             self.sp = self.sp[s_ind]
         self.done = done
 
-def epsilon_policy(Q, s, eps, s_ind=[]):
+def epsilon_policy(Q, s, eps, s_ind=[], n_actions=5):
     if s_ind:
         s = s[s_ind]
     obs = np.array(s).astype('float32')
@@ -62,7 +65,22 @@ def epsilon_policy(Q, s, eps, s_ind=[]):
         return np.argmax(Q(obs).detach().numpy())
     
     # check if this is inclusive
-    return random.randint(0,4)
+    return random.randint(0,n_actions-1)
+
+
+def softmax_policy(Q, s, eps, s_ind=[], n_actions=5):
+    if s_ind:
+        s = s[s_ind]
+    obs = np.array(s).astype('float32')
+    obs = torch.tensor(obs)
+
+    # print(obs)
+    vals = Q(obs).detach().numpy()
+    weights = np.exp(eps*vals)
+    weights /= np.sum(weights)
+
+    return np.random.choice(np.arange(n_actions), p = weights)
+
 
 
 def loss_fn(exptup, Q, Qt, discount, intrinsic_reward):
@@ -121,11 +139,12 @@ if __name__ == "__main__":
     env = RedEnvironment.RedEnv(**settings["env"])
     # state_size = 41
     # state_idx = [1, 2, 3, -1] # X, Y, Location ID, Event Flag
-    state_idx = [1, 2, 3]
+    state_idx = [1, 2]
     state_size = len(state_idx)
 
     # actions_size = env.action_space.n
-    actions_size = 5 # down, left right, up, a
+    # actions_size = 5 # down, left right, up, a
+    actions_size = 4
 
 
 
@@ -152,10 +171,13 @@ if __name__ == "__main__":
     eps_history = []
     count = 0
     max_prog = 0
+    reward_history = []
+    buff_size = 10000
     for j in range(1, num_eps+1):
         
         # reward and history for this episode
         env.reset()
+        max_prog = 0
         eps_reward = 0
         eps_history = []
         
@@ -170,7 +192,9 @@ if __name__ == "__main__":
             if step > max_steps:
                 break
             s = env.observe()
-            action = epsilon_policy(Q,s,epsilon, state_idx)
+            action = epsilon_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
+            # action = softmax_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
+
             # print(action)
             sp, r, done, temp = env.step(action)
             # Keep track of what the flags are
@@ -178,24 +202,28 @@ if __name__ == "__main__":
             if prog > max_prog:
                 max_prog = prog
                 env.save_screenshot(Path(reward_screenshots, f"{np.round(r,2)}.png"))
+                if max_prog >= 0.2:
+                    done = True
 
-            if done:
-                print('We beat Pokemon Red, somehow....')
             step += 1
             count += 1
 
             experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
             buffer.append(experience_tuple)
             eps_history.append(experience_tuple)
+
             eps_reward += experience_tuple.r*(discount**step)
 
-            if sp[-1] != s[-1]:
-                done = True
+            if done:
+                print('We beat Pokemon Red, somehow....')
 
             if count % save_every_n == 0:
                 torch.save(Q.state_dict(), f"{save_root}_{count}")
 
             if count % train_every_n == 0 and count >= initial_fill:
+
+                env.save_screenshot(running_screenshot)
+                env.visualize_policy("policy.png", Q, state_idx[2:])
                 
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
@@ -224,16 +252,18 @@ if __name__ == "__main__":
                     r_loss = r_loss + loss_Q.detach().numpy()
                     rew.append(d.r)
                 losses.append(r_loss/batch_size)
+                if train_every_n == 1:
+                    time.sleep(0.1)
                 # avg_rew.append(np.mean(rew))
 
                 # breakpoint()
                 # print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
                 # print(f'Training: latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
-                env.save_screenshot(running_screenshot)
-                env.visualize_policy("policy.png", Q, state_idx[2:])
+                
                 Qt = Q
-                if len(buffer) > 5000000:
-                    buffer = list(data)
+                if len(buffer) > buff_size:
+                    # buffer = list(data)
+                    buffer = buffer[buff_size - len(buffer):]
         
         print(f"Finished episode {j} -- episode reward {np.round(eps_reward, 3)} -- event flags seen {env.seen_event_flags}")
         if eps_reward > best_reward:
@@ -244,7 +274,14 @@ if __name__ == "__main__":
             env.save_state(best_state_file)
             env.save_screenshot(best_state_file.replace(".state", ".png"))
             # buffer = eps_history[:]
-    
+
+        reward_history.append(eps_reward)
+        plt.close()
+        plt.plot(reward_history)
+        plt.title("Reward vs. Episode #")
+        plt.savefig("rewards.png")
+        plt.close()
+
     tf = time.time()
 
     print("finished running in", np.round(tf-t0, 3), "seconds")

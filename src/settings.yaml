@@ -6,18 +6,19 @@ env:
   initial_state_file: "ROM/PokemonRed.gb.state"
 
 network:
-  num_eps: 1000
-  epsilon: 0.5
-  max_step: 200
-  train_every_n: 1000
-  batch_size: 3000
-  initial_fill: 500
+  num_eps: 10000
+  epsilon: 0.1
+  max_step: 300
+  train_every_n: 1
+  batch_size: 5
+  initial_fill: 1000
   save_every_n: 100000
   discount: 0.99
   lr: 0.000001
   saved_weights: null
   # saved_weights: "weights/weights1_100000_6in"
   save_root: "weights/weights1"
+  saved_weights: "weights/weights_1stroom"
   best_state_file: "ROM/best_state.state"
   running_screenshot: "screenshot.png"
   reward_screenshots: "reward_flags"
