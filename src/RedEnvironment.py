@@ -215,7 +215,7 @@ class RedEnv(Env):
         rgba = self.pyboy.screen.ndarray
         matplotlib.image.imsave(file, rgba)
 
-    def visualize_policy(self, file, Q, s_ind):
+    def visualize_policy(self, file, Q, s_ind, encode_fn = lambda x: x[1:]):
 
         rgba = self.pyboy.screen.ndarray
         plt.imshow(rgba, origin="upper")
@@ -232,7 +232,7 @@ class RedEnv(Env):
         for i, (dx, dy) in enumerate(product(diffs, diffs)):
             xp = x + dx
             yp = y + dy
-            s = [xp, yp] + list(self.state[s_ind])
+            s = encode_fn(np.array([1, xp, yp] + list(self.state[s_ind])))
             Qvals = Q(torch.tensor(s, dtype=torch.float32)).detach().numpy()
             xyqa[i, 0] = xp
             xyqa[i, 1] = yp

@@ -27,6 +27,24 @@ class Q_est(nn.Module):
         # x = self.hidden2(x)
         x = self.output(x)
         return x
+
+
+class Q_est_ohe(nn.Module):
+    def __init__(self, n_actions, n_feat = 2, n_loc = 256):
+        super(Q_est_ohe, self).__init__()
+        self.hidden1 = nn.Linear(n_feat + n_loc, 32)
+        self.hidden2 = nn.Linear(32, 16)
+        self.output = nn.Linear(16, n_actions)
+
+
+    def forward(self, x):
+        x = torch.relu(self.hidden1(x))
+        x = torch.relu(self.hidden2(x))
+        # x = torch.sigmoid(self.hidden1(x))
+        # x = self.hidden2(x)
+        x = self.output(x)
+        return x
+
     
 class RNDist(nn.Module):
     def __init__(self, n_observations):
@@ -38,6 +56,22 @@ class RNDist(nn.Module):
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
         x = self.output(x)
+        return x
+    
+
+    
+class RNDistOHE(nn.Module):
+    def __init__(self, n_actions, n_feat = 2, n_loc = 256):
+        super(RNDistOHE, self).__init__()
+        self.hidden1 = nn.Linear(n_feat + n_loc, 16)
+        self.hidden2 = nn.Linear(16, 8)
+        self.output = nn.Linear(8, 1)
+
+
+    def forward(self, x):
+        x = torch.relu(self.hidden1(x))
+        x = torch.relu(self.hidden2(x))
+        x = torch.sigmoid(self.output(x))
         return x
 
 
@@ -51,13 +85,49 @@ class ObservationTuple:
         self.sp = sp 
         if s_ind:
             self.sp = self.sp[s_ind]
+
+        self.s = torch.tensor(self.s)
+        self.sp = torch.tensor(self.sp)
+
         self.done = done
 
+
+def encode_loc(s, s_ind, n_feat = 2, n_loc=256):
+    
+    new_s = np.zeros(n_feat + n_loc)
+    new_s[:n_feat] = s[s_ind[:-1]]
+    new_s[n_feat + int(s[s_ind[-1]])] = 1
+
+    return torch.tensor(new_s, dtype=torch.float32).to_sparse()
+
+
+def decode_loc(s, s_ind, n_feat = 2, n_loc=256):
+
+    new_s = np.zeros(n_feat + 1)
+    new_s[:n_feat] = s[:n_feat]
+    new_s[n_feat] = np.argmax(s[n_feat:])
+
+    return new_s
+
+
+class ObservationTupleOHE:
+    def __init__(self, s, a, r, sp, done, s_ind = []):
+        self.s = encode_loc(s, s_ind)
+        self.a = a
+        self.r = r 
+        self.sp = encode_loc(sp, s_ind)
+        self.done = done
+
+
+
+
 def epsilon_policy(Q, s, eps, s_ind=[], n_actions=5):
-    if s_ind:
+    if s_ind and len(s) < 100:
         s = s[s_ind]
-    obs = np.array(s).astype('float32')
-    obs = torch.tensor(obs)
+        obs = np.array(s).astype('float32')
+        obs = torch.tensor(obs)
+    else:
+        obs = s
 
     # print(obs)
     if random.random() > eps:
@@ -69,10 +139,12 @@ def epsilon_policy(Q, s, eps, s_ind=[], n_actions=5):
 
 
 def softmax_policy(Q, s, eps, s_ind=[], n_actions=5):
-    if s_ind:
+    if s_ind and len(s) < 100:
         s = s[s_ind]
-    obs = np.array(s).astype('float32')
-    obs = torch.tensor(obs)
+        obs = np.array(s).astype('float32')
+        obs = torch.tensor(obs)
+    else:
+        obs = s
 
     # print(obs)
     vals = Q(obs).detach().numpy()
@@ -119,6 +191,7 @@ if __name__ == "__main__":
     max_steps = network_settings["max_step"]
     discount = network_settings["discount"]
     lr = network_settings["lr"]
+    lr_rnd = network_settings["lr_rnd"]
     weights_file = network_settings["saved_weights"]
     save_root = network_settings["save_root"]
     train_every_n = network_settings["train_every_n"]
@@ -139,7 +212,7 @@ if __name__ == "__main__":
     env = RedEnvironment.RedEnv(**settings["env"])
     # state_size = 41
     # state_idx = [1, 2, 3, -1] # X, Y, Location ID, Event Flag
-    state_idx = [1, 2]
+    state_idx = [1, 2, 3]
     state_size = len(state_idx)
 
     # actions_size = env.action_space.n
@@ -148,20 +221,29 @@ if __name__ == "__main__":
 
 
 
-    Q = Q_est(state_size, actions_size)
-    Qt = Q_est(state_size, actions_size)
+    # Q = Q_est(state_size, actions_size)
+    # Qt = Q_est(state_size, actions_size)
+    # Q = Q_est_ohe(actions_size, state_size-1)
+    # Qt = Q_est_ohe(actions_size, state_size-1)
     # QBest = Q_est(state_size, actions_size)
-    RNDistTarget = RNDist(state_size)
-    RNDistPredictor = RNDist(state_size)
-    
-    if not weights_file is None:
-        Q.load_state_dict(torch.load(weights_file))
-        Qt.load_state_dict(torch.load(weights_file))
+
+    # RNDistTarget = RNDist(state_size)
+    # RNDistPredictor = RNDist(state_size)
+    # RNDistTarget = RNDistOHE(actions_size, state_size-1)
+    # RNDistPredictor = RNDistOHE(actions_size, state_size-1)
+
+    Q_dict = {}
+    RND_pred_dict = {}
+    RND_targ_dict = {}
+
+    # if not weights_file is None:
+    #     Q.load_state_dict(torch.load(weights_file))
+    #     Qt.load_state_dict(torch.load(weights_file))
 
     losses = []
     buffer = []
-    optimizer = optim.Adam(Q.parameters(), lr=lr)
-    RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=lr)
+    # optimizer = optim.Adam(Q.parameters(), lr=lr)
+    # RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=1e-03)
     intrinsic_loss = torch.nn.MSELoss()
     t0 = time.time()
     epsMax = epsilon
@@ -172,7 +254,7 @@ if __name__ == "__main__":
     count = 0
     max_prog = 0
     reward_history = []
-    buff_size = 10000
+    buff_size = 15000
     for j in range(1, num_eps+1):
         
         # reward and history for this episode
@@ -185,6 +267,7 @@ if __name__ == "__main__":
         #     epsilon = epsilon-.01
         # epsilon = epsMax*epsRatio**(j-1)
         # epsilon = epsilon
+
         done = False
         Qt = Q
         step = 0
@@ -192,23 +275,44 @@ if __name__ == "__main__":
             if step > max_steps:
                 break
             s = env.observe()
-            action = epsilon_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
+            # action = epsilon_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
             # action = softmax_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
+
+            loc = s[3]
+            if loc not in Q_dict:
+                Q_dict[loc] = [Q_est(state_size, actions_size), None]
+                Q_dict[loc][1] = optim.Adam(Q_dict[loc][0].parameters(), lr=lr)
+                RNDist[loc] = [Q_est(state_size, actions_size), None]
+                Q_dict[loc][1] = optim.Adam(Q_dict[loc][0].parameters(), lr=lr)
+
+
+            Q = Q_dict[loc][0]
+            optimizer = Q_dict[loc][1]
+            RNDistPredictor = RND_pred_dict[loc][0]
+            RNDoptimzer = RND_pred_dict[loc][1]
+            RNDistTarget = RND_targ_dict[loc]
+
+    RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=1e-03)
+
+            action = epsilon_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
+            # action = softmax_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
+
 
             # print(action)
             sp, r, done, temp = env.step(action)
             # Keep track of what the flags are
             prog = env.progress_val()
-            if prog > max_prog:
+            if prog >= max_prog:
                 max_prog = prog
                 env.save_screenshot(Path(reward_screenshots, f"{np.round(r,2)}.png"))
-                if max_prog >= 0.2:
+                if max_prog > network_settings["max_progress"]:
                     done = True
 
             step += 1
             count += 1
 
-            experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
+            # experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
+            experience_tuple = ObservationTupleOHE(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
             buffer.append(experience_tuple)
             eps_history.append(experience_tuple)
 
@@ -223,7 +327,8 @@ if __name__ == "__main__":
             if count % train_every_n == 0 and count >= initial_fill:
 
                 env.save_screenshot(running_screenshot)
-                env.visualize_policy("policy.png", Q, state_idx[2:])
+                # env.visualize_policy("policy.png", Q, state_idx[2:])
+                env.visualize_policy("policy.png", Q, state_idx[2:], encode_fn=lambda x: encode_loc(x, state_idx))
                 
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
@@ -232,26 +337,38 @@ if __name__ == "__main__":
                 for d in data:
                     
                     
-                    pred = Q(torch.tensor(d.s))
-                    # intrinsicloss = intrinsic_loss(RNDistPredictor(torch.tensor(d.s)), RNDistTarget(torch.tensor(d.s)))
-                    # RNDoptimzer.zero_grad()
-                    
-                    # intrin_loss_list.append(intrinsicloss.detach().numpy())
-                    # # print(np.std(intrin_std))
-                    # intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
-                    # intrinsicloss.backward()
-                    # RNDoptimzer.step()                    
-                    
-                    optimizer.zero_grad()
-                    # loss_Q = loss_fn(d, Q, Qt, discount, intrinsic_reward.detach().numpy())
-                    
-                    loss_Q = loss_fn(d, Q, Qt, discount, 0)
+                    if train_every_n > 1:
+
+                        pred = Q(d.s)
+                        intrinsicloss = intrinsic_loss(RNDistPredictor(d.s), RNDistTarget(d.s))
+                        RNDoptimzer.zero_grad()
+                        
+                        intrin_loss_list.append(intrinsicloss.detach().numpy())
+                        # print(np.std(intrin_std))
+                        # intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
+                        intrinsic_reward = 100*intrinsicloss
+                        intrinsicloss.backward()
+                        RNDoptimzer.step()                    
+                        
+                        optimizer.zero_grad()
+                        ir = intrinsic_reward.detach().numpy()
+                    else:
+                        ir = 0
+
+                    loss_Q = loss_fn(d, Q, Qt, discount, ir)
+                    # loss_Q = loss_fn(d, Q, Qt, discount, 0)
+
+                    # print(d.s.to_dense().numpy()[:2], str(ir))
+
                     loss_Q.backward()
                     optimizer.step()
                     
                     r_loss = r_loss + loss_Q.detach().numpy()
                     rew.append(d.r)
-                losses.append(r_loss/batch_size)
+                if batch_size > 0:
+                    losses.append(r_loss/batch_size)
+                else:
+                    losses.append(0)
                 if train_every_n == 1:
                     time.sleep(0.1)
                 # avg_rew.append(np.mean(rew))
@@ -266,6 +383,7 @@ if __name__ == "__main__":
                     buffer = buffer[buff_size - len(buffer):]
         
         print(f"Finished episode {j} -- episode reward {np.round(eps_reward, 3)} -- event flags seen {env.seen_event_flags}")
+        print(env.seen_location)
         if eps_reward > best_reward:
             best_reward = eps_reward
             print("---------------------------")
