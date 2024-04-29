@@ -42,7 +42,7 @@ def parse_args():
         help="weather to capture videos of the agent performances (check out `videos` folder)")
 
     # Algorithm specific arguments
-    parser.add_argument("--num-envs", type=int, default=96,
+    parser.add_argument("--num-envs", type=int, default=32,
         help="the number of parallel game environments")
     parser.add_argument("--num-steps", type=int, default=64,
         help="the number of steps to run in each environment per policy rollout")
@@ -50,7 +50,7 @@ def parse_args():
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gae", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Use GAE for advantage computation")
-    parser.add_argument("--gamma", type=float, default=0.99,
+    parser.add_argument("--gamma", type=float, default=0.999,
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
@@ -91,20 +91,34 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
+class RNDist(nn.Module):
+    def __init__(self, envs):
+        super(RNDist, self).__init__()
+        self.hidden1 = nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
+        self.hidden2 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 16)
+
+
+    def forward(self, x):
+        x = torch.relu(self.hidden1(x))
+        x = torch.relu(self.hidden2(x))
+        x = self.output(x)
+        return x
+
 
 class Agent(nn.Module):
     def __init__(self, envs):
         super(Agent, self).__init__()
         self.network = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 128)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(128, 128)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(128, 128)),
             nn.Tanh(),
         )
-        self.actor = layer_init(nn.Linear(64, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(64, 1), std=1)
+        self.actor = layer_init(nn.Linear(128, envs.single_action_space.n-1), std=0.01)
+        self.critic = layer_init(nn.Linear(128, 1), std=1)
 
     def get_value(self, x):
         return self.critic(self.network(x / 255.0))
@@ -153,12 +167,17 @@ if __name__ == "__main__":
         [make_env() for i in range(args.num_envs)]
     )
     
-    print(envs)
+    # print(envs)
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
     agent = Agent(envs).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
-
+    RNDistTarget = RNDist(envs)
+    RNDistPredictor = RNDist(envs)
+    RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=1e-5)
+    intrinsic_loss = torch.nn.MSELoss()
+    
+    
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
     # print(torch.size(obs))
@@ -195,21 +214,35 @@ if __name__ == "__main__":
                 values[step] = value.flatten()
             actions[step] = action
             logprobs[step] = logprob
-
+            # print(actions[step])
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, done, info = envs.step(action.cpu().numpy())
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
-            
+            # intrisic_rew = [intrin_loss()]
+            # print(reward)
+            # intrin_loss_list = [intrinsic_loss(RNDistPredictor(s), RNDistTarget(s)) for s in next_obs]
+            intrinsic_loss_list = []
+            for s in next_obs:
+                RNDoptimzer.zero_grad()
+                loss_val = intrinsic_loss(RNDistPredictor(torch.tensor(s.astype('float32'))), RNDistTarget(torch.tensor(s.astype('float32'))))
+                intrinsic_loss_list.append(loss_val.detach().numpy())
+                loss_val.backward()
+                RNDoptimzer.step()
+                
+            # print(intrinsic_loss_list)
+            # input('')
+            intrinsic_reward = intrinsic_loss_list/(np.std(intrinsic_loss_list)+.001)
+            reward_t = reward + intrinsic_reward
+            rewards[step] = torch.tensor(reward_t).to(device).view(-1)
+            # print(intrinsic_reward)
+            # print(rewards[step])
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)
             writer.add_scalar("charts/max_rew_steps", torch.max(rewards[step]), global_step )
             writer.add_scalar("charts/avg_rew_steps", torch.mean(rewards[step]), global_step )
+            writer.add_scalar("charts/avg_intrin_rew", np.mean(intrinsic_reward), global_step)
+            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
 
-            # for item in info:
-            #     if "episode" in item.keys():
-            #         print(f"global_step={global_step}, episodic_return={item['episode']['r']}")
-            #         writer.add_scalar("charts/episodic_return", item["episode"]["r"], global_step)
-            #         writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)
-            #         break
+
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -297,7 +330,7 @@ if __name__ == "__main__":
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
-                print("Stepped")
+                # print("Stepped")
 
             if args.target_kl is not None:
                 if approx_kl > args.target_kl:

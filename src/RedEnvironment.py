@@ -56,10 +56,11 @@ class RedEnv(Env):
         self.party_max_hp = [0,0,0,0,0,0]
         self.gym_badges = [0,0,0,0,0,0,0,0]
         self.flags = 0
+        self.prev_flags = 0
         self.new_pos = 0
         self.seen_position = {}
         self.seen_location = {}
-        self.state = np.hstack([1, self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags])
+        self.state = np.hstack([self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.flags])
         # print(self.state)
         self.observation_space = spaces.Box(low=0, high = np.inf, shape = (len(self.state),), dtype=int)
         self.reward = 0
@@ -74,7 +75,8 @@ class RedEnv(Env):
         # time.sleep(1/60)
         # disable rendering when we don't need it
         # action=action
-        self.pyboy.tick()
+        for i in range(3):
+            self.pyboy.tick()
         match action:
             case 0:
                 self.pyboy.send_input(self.release_arrow[0])
@@ -92,9 +94,9 @@ class RedEnv(Env):
                 self.pyboy.send_input(self.release_button[2])
             case _:
                 pass
-        # for j in range(0, 8):
-        #     self.pyboy.tick()
-        self.pyboy.tick()
+        for j in range(0, 8):
+            self.pyboy.tick()
+        # self.pyboy.tick()
         self.update_state()
         self.update_reward()
         
@@ -115,6 +117,7 @@ class RedEnv(Env):
         bitsum = 0
         for i in range(55111,55431):
             bitsum = bitsum + ((self.read_m(i)).bit_count())
+        self.prev_flags = self.flags
         self.flags = bitsum
       
             
@@ -130,7 +133,7 @@ class RedEnv(Env):
         loc=str(self.map_loc)
         if (key in self.seen_position):
             self.seen_position[key] += 1
-            self.new_pos= -.0001*self.seen_position[key]
+            self.new_pos= .99*self.seen_position[key]
         else:
             self.seen_position[key] = 1
             self.new_pos = 5
@@ -158,13 +161,13 @@ class RedEnv(Env):
         self.get_party()
         self.get_battle()
         
-        self.state = np.hstack([1,self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels, self.party, self.party_hp, self.party_max_hp, self.gym_badges, self.flags])
+        self.state = np.hstack([self.x_pos, self.y_pos, self.map_loc, self.type_of_battle, self.slot1, self.slot1_hp, self.enemy_mon, self.enemy_mon_hp, self.party_levels,self.flags])
         # print(self.party_max_hp)
         # print(self.gym_badges)
         # print(self.state)
     def update_reward(self):
         
-        self.reward = self.flags+len(self.seen_location)
+        self.reward = self.flags + .1*len(self.seen_location) + np.sum(self.party_levels)
         # self.reward = self.flags
 
         # if self.reward is None:
