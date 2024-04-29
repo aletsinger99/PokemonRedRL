@@ -168,6 +168,9 @@ class RedEnv(Env):
         self.enemy_mon_hp = int(str(bin(self.read_m(E_POKEMON_H1)))[2:]+str(bin(self.read_m(E_POKEMON_H2)))[2:],2)
 
     def update_state(self):
+
+        self.old_state = np.array([x for x in self.state])
+
         self.get_event_flags()
         self.get_badges()
         self.get_position()
@@ -190,6 +193,11 @@ class RedEnv(Env):
             self.reward += 10*new_locs
         if self.state[-1] > 0:
             self.reward += 100*self.new_flags
+
+        # Bumping a table or wall or something
+        if self.old_state[1] == self.state[1] and self.old_state[2] == self.state[2]:
+            if not (self.new_flags > 0 or new_locs > 0):
+                self.reward -= 1e-03*1
 
         self.old_seen_loc = len(self.seen_location)
         # self.reward = self.new_flags

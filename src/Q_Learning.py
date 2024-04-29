@@ -9,6 +9,8 @@ import yaml
 
 import time, sys
 from pathlib import Path
+import os
+from copy import deepcopy
 
 import matplotlib.pyplot as plt
 
@@ -49,13 +51,13 @@ class Q_est_ohe(nn.Module):
 class RNDist(nn.Module):
     def __init__(self, n_observations):
         super(RNDist, self).__init__()
-        self.hidden1 = nn.Linear(n_observations, 16)
-        self.output = nn.Linear(16, 1)
+        self.hidden1 = nn.Linear(n_observations, 32)
+        self.output = nn.Linear(32, 1)
 
 
     def forward(self, x):
         x = torch.relu(self.hidden1(x))
-        x = self.output(x)
+        x = torch.sigmoid(self.output(x))
         return x
     
 
@@ -77,6 +79,12 @@ class RNDistOHE(nn.Module):
 
 class ObservationTuple:
     def __init__(self, s, a, r, sp, done, s_ind = []):
+
+        # Important info
+        self.loc = int(s[3])
+        self.type_of_battle = int(s[4])
+        self.flags = s[-1]
+
         self.s = s
         if s_ind:
             self.s = self.s[s_ind]
@@ -112,6 +120,12 @@ def decode_loc(s, s_ind, n_feat = 2, n_loc=256):
 
 class ObservationTupleOHE:
     def __init__(self, s, a, r, sp, done, s_ind = []):
+
+        # Important info
+        self.loc = int(s[3])
+        self.type_of_battle = int(s[4])
+        self.flags = s[-1]
+
         self.s = encode_loc(s, s_ind)
         self.a = a
         self.r = r 
@@ -175,6 +189,79 @@ def tup_to_mat(data):
     return s_mat, r_mat, a_mat, sp_mat, done
 
 
+def save_networks(folder, Q_dict, RND_pred_dict, RND_targ_dist):
+
+    # Make the folder
+    Path(folder).mkdir(exist_ok=True, parents=True)
+
+    # Save all the dictionaries
+    for loc in Q_dict:
+        # Make subfolder
+        subfolder = Path(folder, str(loc))
+        subfolder.mkdir(exist_ok=True, parents=True)
+        # Save dictionaries
+        torch.save(Q_dict[loc][0].state_dict(), str(Path(subfolder, f"Q")))
+        torch.save(RND_pred_dict[loc][0].state_dict(), str(Path(subfolder, f"RND_pred")))
+        torch.save(RND_targ_dict[loc].state_dict(), str(Path(subfolder, f"RND_targ")))
+    
+
+
+def load_networks(folder, Q_func, Q_optim_func, RND_func, RND_optim_func):
+
+    # Initialize dictionaires
+    Q_dict, RND_pred_dict, RND_targ_dist = {}, {}, {}
+
+    # List of locations
+    locs = os.listdir(folder)
+
+    # Load the networks
+    for loc in locs:
+        subfolder = Path(folder, loc)
+        loc = int(loc)
+        Q_dict[loc] = [Q_func(), None]
+        Q_dict[loc][0].load_state_dict(torch.load(Path(subfolder, "Q")))
+        Q_dict[loc][1] = Q_optim_func(Q_dict[loc][0])
+
+        RND_pred_dict[loc] = [RND_func(), None]
+        RND_pred_dict[loc][0].load_state_dict(torch.load(Path(subfolder, "RND_pred")))
+        RND_pred_dict[loc][1] = RND_optim_func(RND_pred_dict[loc][0])
+
+        RND_targ_dist[loc] = RND_func()
+        RND_targ_dist[loc].load_state_dict(torch.load(Path(subfolder, "RND_targ")))
+
+    return Q_dict, RND_pred_dict, RND_targ_dist
+
+
+
+def evaluate_policy(env, Q_dict, max_steps, discount, state_idx, actions_size):
+    
+    env.reset()
+    eps_reward = 0
+    step = 0
+    while step < max_steps:
+
+        s = env.observe()
+        loc = int(s[3])
+
+        # Load networks
+        Q = Q_dict[loc][0]
+
+        # If you're not in a battle
+        if s[4] == 0:
+            action = epsilon_policy(Q, s, 0.1, state_idx, n_actions=actions_size)
+        else:
+            action = random.randint(0,5)
+            
+        sp, r, done, temp = env.step(action)
+
+        eps_reward += r*(discount**step)
+       
+        step += 1
+    
+    return eps_reward
+
+
+
 if __name__ == "__main__":
 
     # Open settings file
@@ -212,7 +299,7 @@ if __name__ == "__main__":
     env = RedEnvironment.RedEnv(**settings["env"])
     # state_size = 41
     # state_idx = [1, 2, 3, -1] # X, Y, Location ID, Event Flag
-    state_idx = [1, 2, 3]
+    state_idx = [1, 2]
     state_size = len(state_idx)
 
     # actions_size = env.action_space.n
@@ -235,8 +322,17 @@ if __name__ == "__main__":
     Q_dict = {}
     RND_pred_dict = {}
     RND_targ_dict = {}
+    Q_func = lambda : Q_est(state_size, actions_size)
+    Q_optim_func = lambda Q: optim.Adam(Q.parameters(), lr=lr)
+    RND_func = lambda : RNDist(state_size)
+    RND_optim_func = lambda Q: optim.Adam(Q.parameters(), lr=lr_rnd)
 
-    # if not weights_file is None:
+    if not weights_file is None:
+        Q_dict, RND_pred_dict, RND_targ_dict = load_networks(weights_file, Q_func, Q_optim_func,
+                                                   RND_func, RND_optim_func)
+        print("Loaded Weights")
+    
+
     #     Q.load_state_dict(torch.load(weights_file))
     #     Qt.load_state_dict(torch.load(weights_file))
 
@@ -254,7 +350,7 @@ if __name__ == "__main__":
     count = 0
     max_prog = 0
     reward_history = []
-    buff_size = 15000
+    buff_size = 500000
     for j in range(1, num_eps+1):
         
         # reward and history for this episode
@@ -265,11 +361,11 @@ if __name__ == "__main__":
         
         # if epsilon > .1:
         #     epsilon = epsilon-.01
-        # epsilon = epsMax*epsRatio**(j-1)
+        epsilon = epsMax*(1-j/num_eps)
         # epsilon = epsilon
 
         done = False
-        Qt = Q
+        Qt_dict = deepcopy(Q_dict)
         step = 0
         while not done:
             if step > max_steps:
@@ -278,82 +374,108 @@ if __name__ == "__main__":
             # action = epsilon_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
             # action = softmax_policy(Q,s,epsilon, state_idx, n_actions=actions_size)
 
-            loc = s[3]
-            if loc not in Q_dict:
-                Q_dict[loc] = [Q_est(state_size, actions_size), None]
-                Q_dict[loc][1] = optim.Adam(Q_dict[loc][0].parameters(), lr=lr)
-                RNDist[loc] = [Q_est(state_size, actions_size), None]
-                Q_dict[loc][1] = optim.Adam(Q_dict[loc][0].parameters(), lr=lr)
+            # Generate network for s if it doesn't exist
+            loc = int(s[3])
+            if not (loc in Q_dict):
+                Q_dict[loc] = [Q_func(), None]
+                Q_dict[loc][1] = Q_optim_func(Q_dict[loc][0])
+                RND_pred_dict[loc] = [RND_func(), None]
+                RND_pred_dict[loc][1] = RND_optim_func(RND_pred_dict[loc][0])
+                RND_targ_dict[loc] = RND_func()
+                print("Generated Networks for", loc)
 
-
+            # Load networks
             Q = Q_dict[loc][0]
             optimizer = Q_dict[loc][1]
             RNDistPredictor = RND_pred_dict[loc][0]
             RNDoptimzer = RND_pred_dict[loc][1]
             RNDistTarget = RND_targ_dict[loc]
 
-    RNDoptimzer = optim.Adam(RNDistPredictor.parameters(), lr=1e-03)
-
-            action = epsilon_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
-            # action = softmax_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
-
-
-            # print(action)
+            # If you're not in a battle
+            if s[4] == 0:
+                action = epsilon_policy(Q, s, epsilon, state_idx, n_actions=actions_size)
+                # action = softmax_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
+                # action = epsilon_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
+                # action = softmax_policy(Q, encode_loc(s, state_idx),epsilon, state_idx, n_actions=actions_size)
+            else:
+                action = random.randint(0,5)
+                
             sp, r, done, temp = env.step(action)
+
             # Keep track of what the flags are
             prog = env.progress_val()
-            if prog >= max_prog:
+            if prog > max_prog:
                 max_prog = prog
-                env.save_screenshot(Path(reward_screenshots, f"{np.round(r,2)}.png"))
-                if max_prog > network_settings["max_progress"]:
-                    done = True
+                env.save_screenshot(Path(reward_screenshots, f"{np.round(prog,2)}.png"))
+            
+            # if max_prog > network_settings["max_progress"]:
+            #     done = True
+
+            if sp[3] != s[3]:
+                done = True
 
             step += 1
             count += 1
 
-            # experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
-            experience_tuple = ObservationTupleOHE(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
+            experience_tuple = ObservationTuple(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
+            # experience_tuple = ObservationTupleOHE(np.array(s).astype('float32'), action, r, np.array(sp).astype('float32'), done, state_idx)
             buffer.append(experience_tuple)
             eps_history.append(experience_tuple)
 
             eps_reward += experience_tuple.r*(discount**step)
 
+            if max_prog <= network_settings["max_progress"]:
+                    done = False
+
             if done:
                 print('We beat Pokemon Red, somehow....')
 
             if count % save_every_n == 0:
-                torch.save(Q.state_dict(), f"{save_root}_{count}")
+                # torch.save(Q.state_dict(), f"{save_root}_{count}")
+                save_networks(f"{save_root}_{count}", Q_dict, RND_pred_dict, RND_targ_dict)
 
             if count % train_every_n == 0 and count >= initial_fill:
 
                 env.save_screenshot(running_screenshot)
-                # env.visualize_policy("policy.png", Q, state_idx[2:])
-                env.visualize_policy("policy.png", Q, state_idx[2:], encode_fn=lambda x: encode_loc(x, state_idx))
+                env.visualize_policy("policy.png", Q, state_idx[2:])
+                # env.visualize_policy("policy.png", Q, state_idx[2:], encode_fn=lambda x: encode_loc(x, state_idx))
                 
                 r_loss = 0
                 data = np.random.choice(buffer, batch_size)
                 rew = []
                 intrin_loss_list = []
                 for d in data:
-                    
-                    
-                    if train_every_n > 1:
 
-                        pred = Q(d.s)
-                        intrinsicloss = intrinsic_loss(RNDistPredictor(d.s), RNDistTarget(d.s))
-                        RNDoptimzer.zero_grad()
+                    # Select right networks
+                    loc = d.loc
+                    Q = Q_dict[loc][0]
+                    if not (loc in Qt_dict):
+                        Qt_dict[loc] = deepcopy(Q_dict[loc])
+                    Qt = Qt_dict[loc][0]
+                    optimizer = Q_dict[loc][1]
+                    RNDistPredictor = RND_pred_dict[loc][0]
+                    RNDoptimzer = RND_pred_dict[loc][1]
+                    RNDistTarget = RND_targ_dict[loc]
+                    
+                    ir = 0
+
+                    # if train_every_n > 1:
+
+                    #     pred = Q(d.s)
+                    #     intrinsicloss = intrinsic_loss(RNDistPredictor(d.s), RNDistTarget(d.s))
+                    #     RNDoptimzer.zero_grad()
                         
-                        intrin_loss_list.append(intrinsicloss.detach().numpy())
-                        # print(np.std(intrin_std))
-                        # intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
-                        intrinsic_reward = 100*intrinsicloss
-                        intrinsicloss.backward()
-                        RNDoptimzer.step()                    
+                    #     intrin_loss_list.append(intrinsicloss.detach().numpy())
+                    #     # print(np.std(intrin_std))
+                    #     # intrinsic_reward = intrinsicloss/(np.std(intrin_loss_list)+.001)
+                    #     intrinsic_reward = 100*intrinsicloss
+                    #     intrinsicloss.backward()
+                    #     RNDoptimzer.step()                    
                         
-                        optimizer.zero_grad()
-                        ir = intrinsic_reward.detach().numpy()
-                    else:
-                        ir = 0
+                    #     optimizer.zero_grad()
+                    #     ir = intrinsic_reward.detach().numpy()
+                    # else:
+                    #     ir = 0
 
                     loss_Q = loss_fn(d, Q, Qt, discount, ir)
                     # loss_Q = loss_fn(d, Q, Qt, discount, 0)
@@ -377,21 +499,32 @@ if __name__ == "__main__":
                 # print(f'Finished step {step}, latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
                 # print(f'Training: latest loss {r_loss}, Avgreward {np.mean(rew)}, Max Reward Achieved {np.max(rew)}')
                 
-                Qt = Q
+                Qt_dict = deepcopy(Q_dict)
                 if len(buffer) > buff_size:
                     # buffer = list(data)
                     buffer = buffer[buff_size - len(buffer):]
         
         print(f"Finished episode {j} -- episode reward {np.round(eps_reward, 3)} -- event flags seen {env.seen_event_flags}")
         print(env.seen_location)
-        if eps_reward > best_reward:
-            best_reward = eps_reward
+        eval_rew = evaluate_policy(env, Q_dict, max_steps, discount,
+                                   state_idx, actions_size)
+        print(f"evaluated reward: {np.round(eval_rew, 3)}")
+        if eval_rew >= best_reward:
+            best_reward = eval_rew
             print("---------------------------")
             print(f"New best episode reward of {best_reward} achieved!")
             print("---------------------------")
             env.save_state(best_state_file)
             env.save_screenshot(best_state_file.replace(".state", ".png"))
+            save_networks(f"{save_root}_best", Q_dict, RND_pred_dict, RND_targ_dict)
+
             # buffer = eps_history[:]
+        
+        eval_rew = evaluate_policy(env, Q_dict, max_steps=1000, 
+                                   discount=discount,
+                                   state_idx=state_idx,
+                                   actions_size=actions_size)
+
 
         reward_history.append(eps_reward)
         plt.close()
