@@ -9,7 +9,7 @@ from copy import deepcopy
 
 class RedEnv(Env):
     
-    def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state"):
+    def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state", sparse_rewards=False):
         
         self.ROM = ROM
         self.window = window
@@ -66,6 +66,8 @@ class RedEnv(Env):
         self.reward = 0
 
         self.action_space = spaces.Discrete(len(self.valid_actions))
+
+        self.sparse_rewards = sparse_rewards
         self.reset()
         # self.pyboy = PyBoy('ROM/PokemonRed.gb')
 
@@ -108,7 +110,9 @@ class RedEnv(Env):
         self.pyboy.load_state(open(self.initial_state_file,"rb"))
         self.seen_position = {}
         self.seen_location = {}
+        self.reward_level = None
         return self.observe()
+
     def read_m(self, addr):
         # return self.pyboy.get_memory_value(addr)
         return self.pyboy.memory[addr]
@@ -165,9 +169,25 @@ class RedEnv(Env):
         # print(self.party_max_hp)
         # print(self.gym_badges)
         # print(self.state)
+    
+    def instant_reward(self):
+
+        self.reward_level = self.flags + .1*len(self.seen_location) + np.sum(self.party_levels)
+
     def update_reward(self):
         
-        self.reward = self.flags + .1*len(self.seen_location) + np.sum(self.party_levels)
+        # save old reward
+        self.old_reward = self.reward_level
+        self.instant_reward()
+
+        if self.sparse_rewards:
+            if self.old_reward is None:
+                self.reward = 0
+            else:
+                self.reward = self.reward_level - self.old_reward
+        else:
+            self.reward = self.reward_level
+
         # self.reward = self.flags
 
         # if self.reward is None:

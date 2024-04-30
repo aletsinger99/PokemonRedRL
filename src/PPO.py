@@ -26,11 +26,11 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--seed", type=int, default=1,
         help="seed of the experiment")
-    parser.add_argument("--total-timesteps", type=int, default=10000000,
+    parser.add_argument("--total-timesteps", type=int, default=50000000,
         help="total timesteps of the experiments")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=False,
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
@@ -42,7 +42,7 @@ def parse_args():
         help="weather to capture videos of the agent performances (check out `videos` folder)")
 
     # Algorithm specific arguments
-    parser.add_argument("--num-envs", type=int, default=32,
+    parser.add_argument("--num-envs", type=int, default=50,
         help="the number of parallel game environments")
     parser.add_argument("--num-steps", type=int, default=64,
         help="the number of steps to run in each environment per policy rollout")
@@ -50,7 +50,7 @@ def parse_args():
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gae", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Use GAE for advantage computation")
-    parser.add_argument("--gamma", type=float, default=0.999,
+    parser.add_argument("--gamma", type=float, default=1.0,
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
@@ -72,6 +72,8 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=None,
         help="the target KL divergence threshold")
+    parser.add_argument("--sparse_rewards", type=lambda x: bool(strtobool(x)), default=False,
+        help="sparse reward function or not")
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -163,10 +165,14 @@ if __name__ == "__main__":
 
     # env setup
 
-    envs = gym.vector.SyncVectorEnv(
+    # envs = gym.vector.SyncVectorEnv(
+    #     [make_env() for i in range(args.num_envs)]
+    # )
+    
+    envs = gym.vector.AsyncVectorEnv(
         [make_env() for i in range(args.num_envs)]
     )
-    
+
     # print(envs)
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
@@ -239,6 +245,20 @@ if __name__ == "__main__":
             writer.add_scalar("charts/max_rew_steps", torch.max(rewards[step]), global_step )
             writer.add_scalar("charts/avg_rew_steps", torch.mean(rewards[step]), global_step )
             writer.add_scalar("charts/avg_intrin_rew", np.mean(intrinsic_reward), global_step)
+            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+
+            # Progress Flag
+            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            # Locations Seen
+            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            # Cumulative Party Level
+            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
+            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            # Number of Pokemon in Party
             writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
             writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
 

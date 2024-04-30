@@ -14,3 +14,4 @@ dependencies:
   #   - package
   - pip:
     - pyboy==2.0.1
+    - gym==0.17.3
