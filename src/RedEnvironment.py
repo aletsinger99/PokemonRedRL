@@ -7,7 +7,7 @@ import numpy as np
 import time
 from copy import deepcopy
 
-import matplotlib
+import matplotlib.image
 from pathlib import Path
 import os
 
@@ -202,11 +202,16 @@ class RedEnv(Env):
         savename = f"{int(self.flags)}_{len(self.seen_location)}_{int(np.sum(self.party_levels))}.state"
         savename = str(Path(savedir, savename))
         if saves:
-            flags, locs, levels = saves[0].replace(".state", "").split("_")
-            if self.flags > int(flags) or len(self.seen_location) > int(locs) or np.sum(self.party_levels) > int(levels):
+            stats = [x.replace(".state", "").split("_") for x in saves if ".state" in x]
+            max_flag = max([s[0] for s in stats])
+            max_loc = max([s[1] for s in stats])
+            max_level = max([s[2] for s in stats])
+            if self.flags > int(max_flag) or len(self.seen_location) > int(max_loc) or np.sum(self.party_levels) > int(max_level):
                 self.save_state(savename)
+                self.save_screenshot(savename.replace(".state", ".png"))
         else:
             self.save_state(savename)
+            self.save_screenshot(savename.replace(".state", ".png"))
 
     def save_state(self, file):
         with open(file, "wb") as f:
