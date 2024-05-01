@@ -200,7 +200,6 @@ if __name__ == "__main__":
     next_obs = torch.Tensor(envs.reset()).to(device) ##########PROBLEM
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = args.total_timesteps // args.batch_size
-    
 
     for update in range(1, num_updates + 1):
         # Annealing the rate if instructed to do so.
@@ -250,17 +249,20 @@ if __name__ == "__main__":
             writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
 
             # Progress Flag
-            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
-            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
-            # Locations Seen
-            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
-            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            obs_np = next_obs.cpu().numpy()
+            flags = obs_np[:, -1]
+            writer.add_scalar("charts/avg_flag", np.mean(flags), global_step)
+            writer.add_scalar("charts/max_flag", np.max(flags), global_step)
+    
             # Cumulative Party Level
-            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
-            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            levels = np.sum(obs_np[:, 8:14], axis=1)
+            writer.add_scalar("charts/avg_party_levels", np.mean(levels), global_step)
+            writer.add_scalar("charts/max_party_levels", np.max(levels), global_step)
+
             # Number of Pokemon in Party
-            writer.add_scalar("charts/avg_extrin_rew", np.mean(reward), global_step)
-            writer.add_scalar("charts/max_extrin_rew", np.max(reward), global_step)
+            levels = np.sum(obs_np[:, 8:14] > 0, axis=1)
+            writer.add_scalar("charts/avg_num_pkmn", np.mean(levels), global_step)
+            writer.add_scalar("charts/max_num_pkmn", np.max(levels), global_step)
 
 
 

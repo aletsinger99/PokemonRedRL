@@ -7,6 +7,10 @@ import numpy as np
 import time
 from copy import deepcopy
 
+import matplotlib
+from pathlib import Path
+import os
+
 class RedEnv(Env):
     
     def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state", sparse_rewards=False):
@@ -180,6 +184,11 @@ class RedEnv(Env):
         self.old_reward = self.reward_level
         self.instant_reward()
 
+        # If you've progressed, maybe save your state
+        if not (self.old_reward is None):
+            if self.reward_level != self.old_reward:
+                self.check_state_save()
+
         if self.sparse_rewards:
             if self.old_reward is None:
                 self.reward = 0
@@ -187,6 +196,28 @@ class RedEnv(Env):
                 self.reward = self.reward_level - self.old_reward
         else:
             self.reward = self.reward_level
+
+    def check_state_save(self, savedir="saved_states"):
+        saves = os.listdir(savedir)
+        savename = f"{int(self.flags)}_{len(self.seen_location)}_{int(np.sum(self.party_levels))}.state"
+        savename = str(Path(savedir, savename))
+        if saves:
+            flags, locs, levels = saves[0].replace(".state", "").split("_")
+            if self.flags > int(flags) or len(self.seen_location) > int(locs) or np.sum(self.party_levels) > int(levels):
+                self.save_state(savename)
+        else:
+            self.save_state(savename)
+
+    def save_state(self, file):
+        with open(file, "wb") as f:
+            self.pyboy.save_state(f)
+
+    def load_state(self, file):
+        self.pyboy.load_state(open(file,"rb"))
+
+    def save_screenshot(self, file):
+        rgba = self.pyboy.screen.ndarray
+        matplotlib.image.imsave(file, rgba)
 
         # self.reward = self.flags
 
