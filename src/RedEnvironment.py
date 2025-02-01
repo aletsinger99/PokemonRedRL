@@ -13,7 +13,7 @@ import os
 
 class RedEnv(Env):
     
-    def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state", sparse_rewards=False):
+    def __init__(self, window='null', ROM='ROM/PokemonRed.gb', initial_state_file="ROM/PokemonRed.gb.state", sparse_rewards=True):
         
         self.ROM = ROM
         self.window = window
@@ -176,7 +176,7 @@ class RedEnv(Env):
     
     def instant_reward(self):
 
-        self.reward_level = self.flags + .1*len(self.seen_location) + np.sum(self.party_levels)
+        self.reward_level = 100*self.flags + 10*len(self.seen_location) + np.sum(self.party_levels)
 
     def update_reward(self):
         

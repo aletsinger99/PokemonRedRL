@@ -26,7 +26,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--seed", type=int, default=1,
         help="seed of the experiment")
-    parser.add_argument("--total-timesteps", type=int, default=50000000,
+    parser.add_argument("--total-timesteps", type=int, default=2*50000000,
         help="total timesteps of the experiments")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
@@ -50,7 +50,7 @@ def parse_args():
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gae", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Use GAE for advantage computation")
-    parser.add_argument("--gamma", type=float, default=1.0,
+    parser.add_argument("--gamma", type=float, default=0.9999,
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
@@ -83,7 +83,8 @@ def parse_args():
 
 def make_env():
     def thunk():
-        return RedEnvironment.RedEnv()
+        return RedEnvironment.RedEnv(initial_state_file="saved_states_sparse_2/15_12_20.state")
+        # return RedEnvironment.RedEnv()
 
     return thunk
 
@@ -202,6 +203,11 @@ if __name__ == "__main__":
     num_updates = args.total_timesteps // args.batch_size
 
     for update in range(1, num_updates + 1):
+
+        if global_step > 0 and global_step % 50000000 == 0:
+            torch.save(agent.state_dict(), "weights/PPO_weights")
+
+
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates
@@ -217,6 +223,7 @@ if __name__ == "__main__":
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
+            # action = torch.randint(0, 5, action.shape)
             actions[step] = action
             logprobs[step] = logprob
             # print(actions[step])
@@ -233,8 +240,8 @@ if __name__ == "__main__":
                 loss_val.backward()
                 RNDoptimzer.step()
                 
-            # print(intrinsic_loss_list)
-            # input('')
+            # # print(intrinsic_loss_list)
+            # # input('')
             intrinsic_reward = intrinsic_loss_list/(np.std(intrinsic_loss_list)+.001)
             reward_t = reward + intrinsic_reward
             rewards[step] = torch.tensor(reward_t).to(device).view(-1)
@@ -253,6 +260,17 @@ if __name__ == "__main__":
             flags = obs_np[:, -1]
             writer.add_scalar("charts/avg_flag", np.mean(flags), global_step)
             writer.add_scalar("charts/max_flag", np.max(flags), global_step)
+
+
+            # Got Pokemon
+            writer.add_scalar("charts/pokemon_got", np.mean(flags > 4), global_step)
+
+            # Past Package
+            writer.add_scalar("charts/package_got", np.mean(flags > 8), global_step)
+
+            # Past Map
+            writer.add_scalar("charts/package_deliv", np.mean(flags > 13), global_step)
+
     
             # Cumulative Party Level
             levels = np.sum(obs_np[:, 8:14], axis=1)
@@ -353,6 +371,7 @@ if __name__ == "__main__":
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
                 # print("Stepped")
+        
 
             if args.target_kl is not None:
                 if approx_kl > args.target_kl:
